@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#111827" />
+  <meta name="description" content="PokéInventar – en visuell prototype for lagerstatus på Pokémon-kort i norske butikker." />
+  <title>PokéInventar</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="ambient ambient-one"></div>
+  <div class="ambient ambient-two"></div>
+
+  <header class="topbar">
+    <a class="brand" href="#" aria-label="PokéInventar forsiden">
+      <span class="brand-mark" aria-hidden="true"><span></span></span>
+      <span>PokéInventar</span>
+    </a>
+    <nav class="topnav" aria-label="Hovedmeny">
+      <button class="nav-button active" data-view="sets">Sett</button>
+      <button class="nav-button" data-view="stores">Butikker</button>
+      <button class="nav-button" data-view="saved">Lagret <span id="savedCount" class="count-pill">0</span></button>
+    </nav>
+    <button class="icon-button" id="themeToggle" aria-label="Bytt fargetema" title="Bytt fargetema">☼</button>
+  </header>
+
+  <main>
+    <section class="hero" aria-labelledby="heroTitle">
+      <div class="hero-copy">
+        <span class="eyebrow"><span class="live-dot"></span> Norsk lageroversikt</span>
+        <h1 id="heroTitle">Finn kortene.<br><span>Før de forsvinner.</span></h1>
+        <p>Utforsk Pokémon-sett og norske butikker i en ryddig, visuell oversikt. Sammenlign tilgjengelighet, prisnivå og utvalg uten lange lister.</p>
+        <div class="hero-actions">
+          <button class="primary-button" id="exploreButton">Utforsk sett</button>
+          <button class="secondary-button" id="randomButton">Overrask meg</button>
+        </div>
+      </div>
+      <div class="hero-stack" aria-hidden="true">
+        <div class="showcase-card card-back back-one"></div>
+        <div class="showcase-card card-back back-two"></div>
+        <div class="showcase-card card-front">
+          <div class="mini-label">POPULÆRT NÅ</div>
+          <div class="orbital-art"><span class="core"></span></div>
+          <div>
+            <strong>Perfect Order</strong>
+            <span>Fra 85 kr · 21 på lager</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="stats" aria-label="Nøkkeltall">
+      <article><span class="stat-icon">◫</span><div><strong id="setTotal">71</strong><span>sett fulgt</span></div></article>
+      <article><span class="stat-icon">⌂</span><div><strong id="storeTotal">34</strong><span>butikker</span></div></article>
+      <article><span class="stat-icon">✓</span><div><strong id="availableTotal">64</strong><span>sett på lager</span></div></article>
+      <article><span class="stat-icon">↻</span><div><strong>15:08</strong><span>snapshot 19.07.26</span></div></article>
+    </section>
+
+    <section class="browser" id="browser">
+      <div class="section-heading">
+        <div>
+          <span class="eyebrow muted" id="sectionEyebrow">ALLE SETT</span>
+          <h2 id="sectionTitle">Utforsk samlingen</h2>
+          <p id="sectionDescription">Kortene er rangert etter tilgjengelighet, butikkdekning og pris.</p>
+        </div>
+        <div class="result-counter"><strong id="resultCount">71</strong><span>treff</span></div>
+      </div>
+
+      <div class="toolbar" id="toolbar">
+        <label class="search-field">
+          <span aria-hidden="true">⌕</span>
+          <input id="searchInput" type="search" placeholder="Søk etter sett …" autocomplete="off" />
+          <kbd>⌘ K</kbd>
+        </label>
+        <div class="select-wrap">
+          <label for="sortSelect">Sorter</label>
+          <select id="sortSelect">
+            <option value="smart">Anbefalt</option>
+            <option value="stock">Mest på lager</option>
+            <option value="stores">Flest butikker</option>
+            <option value="price">Laveste pris</option>
+            <option value="name">A–Å</option>
+          </select>
+        </div>
+        <button class="filter-button" id="filterToggle" aria-expanded="false">Filtre <span id="filterBadge" hidden>0</span></button>
+      </div>
+
+      <div class="filters" id="filters" hidden>
+        <div>
+          <span class="filter-label">Lagerstatus</span>
+          <div class="chip-row" id="statusFilters">
+            <button class="chip active" data-status="all">Alle</button>
+            <button class="chip" data-status="available">På lager</button>
+            <button class="chip" data-status="soldout">Utsolgt</button>
+            <button class="chip" data-status="upcoming">Kommer snart</button>
+          </div>
+        </div>
+        <div>
+          <span class="filter-label">Prisnivå</span>
+          <div class="chip-row" id="priceFilters">
+            <button class="chip active" data-price="all">Alle priser</button>
+            <button class="chip" data-price="under500">Under 500 kr</button>
+            <button class="chip" data-price="500to1500">500–1500 kr</button>
+            <button class="chip" data-price="over1500">Over 1500 kr</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="card-grid" id="cardGrid" aria-live="polite"></div>
+      <div class="empty-state" id="emptyState" hidden>
+        <div class="empty-ball"><span></span></div>
+        <h3>Ingen treff</h3>
+        <p>Prøv et annet søkeord eller nullstill filtrene.</p>
+        <button class="secondary-button" id="resetFilters">Nullstill</button>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="brand footer-brand"><span class="brand-mark" aria-hidden="true"><span></span></span><span>PokéInventar</span></div>
+    <p>Designprototype med snapshot-data fra PokéSnag. Pris og lager må alltid bekreftes hos butikken.</p>
+    <a href="https://pokesnag.no/" target="_blank" rel="noreferrer">Datagrunnlag: PokéSnag ↗</a>
+  </footer>
+
+  <dialog id="detailDialog">
+    <button class="dialog-close" id="dialogClose" aria-label="Lukk">×</button>
+    <div id="dialogContent"></div>
+  </dialog>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
