@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="nb">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#0d2d68">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PokéInventar">
+  <meta name="description" content="PokéInventar samler Pokémon-kortprodukter fra norske butikker i en visuell oversikt.">
+  <title>PokéInventar</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="assets/icon-192.png">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="preconnect" href="https://pokesymbols.com">
+  <link rel="preconnect" href="https://images.pokemontcg.io">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip-link" href="#catalog">Hopp til innhold</a>
+  <div class="page-glow glow-a"></div>
+  <div class="page-glow glow-b"></div>
+
+  <header class="site-header">
+    <a class="logo" href="#top" aria-label="PokéInventar – hjem">
+      <span class="logo-orb" aria-hidden="true"><i></i></span>
+      <span class="logo-word"><b>Poké</b>Inventar</span>
+    </a>
+    <nav class="main-nav" aria-label="Hovedmeny">
+      <button class="nav-tab is-active" data-view="sets">Sett</button>
+      <button class="nav-tab" data-view="stores">Butikker</button>
+      <button class="nav-tab" data-view="favorites">Favoritter <span id="favoriteCount">0</span></button>
+    </nav>
+    <button class="notify-top" id="notifyTop">🔔 Varsler</button>
+  </header>
+
+  <main id="top">
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="kicker">NORSK KORTJAKT, SAMLET</p>
+        <h1>Finn pakken før<br><span>den blir borte.</span></h1>
+        <p class="hero-text">Bla gjennom sett som visuelle kort, hent ferske priser fra norske butikker og gå direkte til produktet du vil kjøpe.</p>
+        <div class="hero-actions">
+          <button class="button primary" id="browseSets">Utforsk 124 sett</button>
+          <button class="button secondary" id="browseStores">Se norske butikker</button>
+        </div>
+        <div class="trust-row">
+          <span><b id="storeHeroCount">81</b> registrerte butikker</span>
+          <span><b>Direkte</b> produktlenker</span>
+          <span><b>Live</b> butikkfeeds</span>
+        </div>
+      </div>
+      <div class="hero-visual" aria-hidden="true">
+        <div class="orbit orbit-one"></div>
+        <div class="orbit orbit-two"></div>
+        <img class="hero-pack pack-a" src="https://pokesymbols.com/images/tcg/sets/booster-pack-art/chaos-rising-pack-0.png" alt="">
+        <img class="hero-pack pack-b" src="https://pokesymbols.com/images/tcg/sets/booster-pack-art/perfect-order-pack-0.png" alt="">
+        <img class="hero-pack pack-c" src="https://pokesymbols.com/images/tcg/sets/booster-pack-art/ascended-heroes-pack-0.png" alt="">
+        <span class="spark spark-a">✦</span><span class="spark spark-b">✦</span><span class="spark spark-c">✦</span>
+      </div>
+    </section>
+
+    <section class="quick-stats" aria-label="Oversikt">
+      <article><span class="stat-icon">◫</span><div><strong id="setCount">124</strong><small>sett i katalogen</small></div></article>
+      <article><span class="stat-icon">⌂</span><div><strong id="storeCount">81</strong><small>butikker registrert</small></div></article>
+      <article><span class="stat-icon">●</span><div><strong id="availableCount">—</strong><small>kontrollerte sett med lager</small></div></article>
+      <article><span class="stat-icon">↻</span><div><strong>15 min</strong><small>standard oppdateringsintervall</small></div></article>
+    </section>
+
+    <section class="catalog" id="catalog">
+      <header class="catalog-head">
+        <div>
+          <p class="kicker" id="catalogKicker">ALLE SETT</p>
+          <h2 id="catalogTitle">Velg etter motiv, pris eller tilgjengelighet</h2>
+          <p id="catalogIntro">Trykk på et sett for å hente ferske priser, lagerstatus og direkte produktlenker fra butikkene.</p>
+        </div>
+        <div class="result-pill"><b id="resultCount">124</b><span>treff</span></div>
+      </header>
+
+      <div class="controls">
+        <label class="search-box">
+          <span>⌕</span>
+          <input id="search" type="search" placeholder="Søk etter sett …" autocomplete="off">
+        </label>
+        <label class="select-control"><span>Sorter</span><select id="sort">
+          <option value="smart">Live tilgjengelighet</option>
+          <option value="stock">Flest butikker på lager</option>
+          <option value="products">Flest butikker med treff</option>
+          <option value="price">Laveste livepris</option>
+          <option value="name">A–Å</option>
+        </select></label>
+        <button class="filter-toggle" id="filterToggle">Filtre <span id="filterCount" hidden>0</span></button>
+      </div>
+
+      <div class="filter-panel" id="filterPanel" hidden>
+        <div>
+          <span class="filter-title">Status</span>
+          <div class="chips" id="statusChips">
+            <button class="chip is-active" data-status="all">Alle</button>
+            <button class="chip" data-status="available">På lager</button>
+            <button class="chip" data-status="soldout">Utsolgt</button>
+          </div>
+        </div>
+        <div id="eraFilterWrap">
+          <span class="filter-title">Serie</span>
+          <select id="eraFilter"><option value="all">Alle serier</option></select>
+        </div>
+        <div>
+          <span class="filter-title">Makspris</span>
+          <select id="priceFilter">
+            <option value="all">Ingen grense</option>
+            <option value="100">100 kr</option>
+            <option value="250">250 kr</option>
+            <option value="500">500 kr</option>
+            <option value="1000">1 000 kr</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="card-grid" id="grid" aria-live="polite"></div>
+      <div class="empty" id="empty" hidden>
+        <span>◌</span><h3>Ingen treff</h3><p>Prøv et annet søk eller nullstill filtrene.</p><button class="button secondary" id="reset">Nullstill</button>
+      </div>
+    </section>
+
+    <section class="notification-section" id="notifications">
+      <div class="phone-card" aria-hidden="true">
+        <div class="phone-notch"></div>
+        <div class="phone-screen">
+          <span class="mini-time">09:41</span>
+          <div class="push-preview"><img src="assets/icon-192.png" alt=""><div><b>PokéInventar</b><span>Perfect Order er tilbake på lager fra 85 kr.</span></div></div>
+          <div class="phone-orb"><i></i></div>
+        </div>
+      </div>
+      <div class="notification-copy">
+        <p class="kicker">VARSLER PÅ IPHONE</p>
+        <h2>Få beskjed når favoritten din dukker opp</h2>
+        <p>Installer PokéInventar på hjemskjermen, velg favorittsett og aktiver varsler. Live-serveren kan bruke de samme butikkfeedene til å sende lageralarm når et produkt endrer status.</p>
+        <ol class="steps">
+          <li><span>1</span>Åpne siden i Safari og velg «Legg til på Hjem-skjerm».</li>
+          <li><span>2</span>Åpne appen fra hjemskjermen og trykk «Aktiver varsler».</li>
+          <li><span>3</span>Lagre sett med hjertet for å følge dem.</li>
+        </ol>
+        <div class="hero-actions"><button class="button primary" id="enableNotifications">Aktiver varsler</button><button class="button secondary" id="testNotification">Send testvarsel</button></div>
+        <p class="tiny" id="notificationStatus">Varsler er ikke aktivert på denne enheten.</p>
+      </div>
+    </section>
+
+    <section class="submit-store">
+      <div><p class="kicker">MÅLET ER HELE NORGE</p><h2>Mangler det en butikk?</h2><p>Butikkmarkedet endrer seg hele tiden. Et innmeldingsskjema gjør katalogen mulig å holde komplett.</p></div>
+      <a class="button secondary" href="mailto:butikk@pokeinventar.no?subject=Ny%20butikk%20til%20PokéInventar">Meld inn butikk</a>
+    </section>
+  </main>
+
+  <footer>
+    <div class="logo footer-logo"><span class="logo-orb" aria-hidden="true"><i></i></span><span class="logo-word"><b>Poké</b>Inventar</span></div>
+    <p>Uavhengig oversikt for samlere. Produktbilder og varemerker tilhører sine respektive rettighetshavere. Data hentes fra offentlige butikkfeeds og produktsider; pris, frakt og lager bekreftes alltid hos butikken.</p>
+  </footer>
+
+  <dialog id="detailDialog">
+    <button class="dialog-close" id="dialogClose" aria-label="Lukk">×</button>
+    <div id="dialogBody"></div>
+  </dialog>
+
+  <dialog id="notifyDialog">
+    <button class="dialog-close" id="notifyClose" aria-label="Lukk">×</button>
+    <div class="notify-dialog-body">
+      <span class="dialog-icon">🔔</span>
+      <h2>Aktiver lageralarmer</h2>
+      <p>Velg hvilke hendelser du vil ha beskjed om. Innstillingene lagres lokalt i denne prototypen.</p>
+      <label class="toggle-row"><span><b>Tilbake på lager</b><small>Når et lagret sett blir tilgjengelig</small></span><input type="checkbox" id="alertStock" checked></label>
+      <label class="toggle-row"><span><b>Prisfall</b><small>Når laveste pris går ned</small></span><input type="checkbox" id="alertPrice" checked></label>
+      <label class="toggle-row"><span><b>Nye utgivelser</b><small>Når et nytt sett registreres</small></span><input type="checkbox" id="alertRelease"></label>
+      <button class="button primary full" id="confirmNotifications">Tillat varsler</button>
+      <p class="tiny">På iPhone kreves iOS 16.4 eller nyere, HTTPS og at nettappen er lagt til på hjemskjermen.</p>
+    </div>
+  </dialog>
+
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
