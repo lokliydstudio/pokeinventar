@@ -2,6 +2,18 @@
 
 PokéInventar er nå bygget som en liten fullstack-applikasjon. Nettleseren viser ikke genererte butikktilbud. Når et sett åpnes, spør den lokale API-serveren de konfigurerte butikkildene og returnerer bare eksakte produkt-URL-er på butikkens eget domene.
 
+## Produktfilter
+
+Prisoversikten inkluderer kun forseglede produkter i disse fire kategoriene:
+
+- Booster Pack
+- Booster Bundle
+- Elite Trainer Box
+- Booster Display Box
+
+Singlekort, graded cards, collections, tins, blisterpakker, album, sleeves og andre tilbehørsprodukter blir filtrert bort på serversiden før pris, lagerstatus og laveste pris beregnes.
+
+
 ## Start løsningen
 
 Node.js 20 eller nyere kreves. Det er ingen eksterne npm-avhengigheter.
@@ -60,3 +72,19 @@ docker run --rm -p 4173:4173 --env-file .env pokeinventar
 ## Verifiseringsstatus
 
 Adapterne er syntaks- og enhetstestet. Kjøremiljøet som bygget denne pakken hadde ikke utgående DNS-tilgang til butikkene, så alle 81 domener og plattformvarianter er ikke ende-til-ende-verifisert her. Ved produksjonssetting må `/api/stores` overvåkes, og butikkilder som returnerer feil må få en eksplisitt adapter eller partnerfeed.
+
+## Versjon 6 – samlet liveoppdatering
+
+Denne versjonen henter den samlede livekatalogen automatisk. Brukeren trenger ikke åpne et sett før pris og lagerstatus vises på settkortet.
+
+- `GET /api/catalog` returnerer sammendrag og butikktilbud for alle sett i én respons.
+- `GET /api/events` bruker Server-Sent Events for å varsle åpne nettlesere straks en ny katalog er klar eller et sett går fra utsolgt til på lager.
+- Frontend synkroniserer dessuten hvert 30. sekund som reserve.
+- Standard intervall for butikkinnhenting er 120 sekunder og kan endres med `REFRESH_SECONDS`.
+- Bare Booster Pack, Booster Bundle, Elite Trainer Box og Booster Display Box inngår.
+
+Et svært lavt intervall kan belaste eller føre til blokkering hos butikkene. Bruk partner-API eller produktfeed for virkelig øyeblikkelig oppdatering. For vanlige offentlige butikkfeeds er 1–5 minutter et mer ansvarlig utgangspunkt.
+
+### Drift uten egen PC
+
+Applikasjonen må fortsatt ha en alltid-på Node-prosess for prisinnhenting og varsler, men den trenger ikke kjøre hjemme. Dockerfile og `render.yaml` gjør prosjektet klart for en vanlig Node/Docker-host. Raspberry Pi-oppsett er med vilje ikke inkludert i denne builden.

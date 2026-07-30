@@ -1,0 +1,11 @@
+services:
+  - type: web
+    name: pokeinventar
+    runtime: docker
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: REFRESH_SECONDS
+        value: "120"
+      - key: NODE_ENV
+        value: production

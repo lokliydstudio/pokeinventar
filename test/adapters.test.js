@@ -9,7 +9,8 @@ const {
   parseWooProduct,
   parseMagentoProduct,
   parseJsonLdProducts,
-  sameStoreUrl
+  sameStoreUrl,
+  isAllowedProduct
 } = require('../server');
 
 const store = { name: 'Testbutikk', baseUrl: 'https://butikk.no' };
@@ -25,7 +26,18 @@ test('matcher settnavn uten å matche et annet sett', () => {
 
 test('klassifiserer produkttype', () => {
   assert.equal(classifyProduct('Pokémon Destined Rivals Elite Trainer Box'), 'Elite Trainer Box');
-  assert.equal(classifyProduct('Destined Rivals Booster Display'), 'Booster Display');
+  assert.equal(classifyProduct('Destined Rivals Booster Display'), 'Booster Display Box');
+  assert.equal(classifyProduct('Destined Rivals Booster Pack'), 'Booster Pack');
+  assert.equal(classifyProduct('Destined Rivals Booster Bundle'), 'Booster Bundle');
+});
+
+
+test('filtrerer bort singlekort og andre forseglede produkttyper', () => {
+  assert.equal(classifyProduct('Charizard ex 199/165 singlekort'), null);
+  assert.equal(classifyProduct('Destined Rivals 3-pack blister'), null);
+  assert.equal(classifyProduct('Destined Rivals Collection Box'), null);
+  assert.equal(isAllowedProduct({ productType: 'Booster Pack' }), true);
+  assert.equal(isAllowedProduct({ productType: null }), false);
 });
 
 test('parser Shopify-produkt og beholder direkte URL', () => {

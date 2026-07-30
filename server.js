@@ -11,7 +11,7 @@ const ROOT = __dirname;
 const PORT = Number(process.env.PORT || 4173);
 const HOST = process.env.HOST || '0.0.0.0';
 const USER_AGENT = process.env.CRAWLER_USER_AGENT || 'PokeInventar/1.0 (+https://pokeinventar.no; kontakt@pokeinventar.no)';
-const REFRESH_MS = Number(process.env.REFRESH_MINUTES || 15) * 60_000;
+const REFRESH_MS = Number(process.env.REFRESH_SECONDS || (Number(process.env.REFRESH_MINUTES || 2) * 60)) * 1_000;
 const REQUEST_TIMEOUT_MS = Number(process.env.REQUEST_TIMEOUT_MS || 8_000);
 const ALLOW_HTML_FALLBACK = process.env.ALLOW_HTML_FALLBACK !== 'false';
 const MAX_SHOPIFY_PAGES = Number(process.env.MAX_SHOPIFY_PAGES || 5);
@@ -25,6 +25,8 @@ const CACHE_FILE = path.join(ROOT, 'live-cache.json');
 const catalogCache = new Map();
 const setOfferCache = new Map();
 let warmupPromise = null;
+let liveSnapshot = { generatedAt: 0, summaries: [], sets: {} };
+const eventClients = new Set();
 
 const MIME = {
   '.html': 'text/html; charset=utf-8',
@@ -39,6 +41,81 @@ const MIME = {
   '.webp': 'image/webp',
   '.ico': 'image/x-icon'
 };
+
+
+function loadSetCatalog() {
+  try {
+    const source = fs.readFileSync(path.join(ROOT, 'data.js'), 'utf8');
+    const match = source.match(/window\.POKE_DATA\s*=\s*([\s\S]*);\s*$/);
+    if (!match) return [];
+    return JSON.parse(match[1]).sets || [];
+  } catch (error) {
+    console.warn('Kunne ikke lese settkatalog:', error.message);
+    return [];
+  }
+}
+
+const SET_CATALOG = loadSetCatalog();
+
+function snapshotForCatalogs() {
+  const setsPayload = {};
+  const summaries = [];
+  for (const set of SET_CATALOG) {
+    const offers = [];
+    let storesChecked = 0;
+    for (const store of stores.filter(item => item.enabled)) {
+      const catalog = catalogCache.get(store.name);
+      if (!catalog) continue;
+      storesChecked += 1;
+      const matched = (catalog.products || [])
+        .filter(product => productMatchesSet(product, set.name))
+        .filter(isAllowedProduct);
+      const offer = chooseStoreOffer(store, matched, catalog.fetchedAt || Date.now(), catalog.adapter);
+      if (offer) offers.push(offer);
+    }
+    offers.sort((a, b) => Number(b.inStock) - Number(a.inStock) || (a.price ?? Infinity) - (b.price ?? Infinity) || a.store.name.localeCompare(b.store.name, 'nb'));
+    const available = offers.filter(offer => offer.inStock);
+    const prices = available.map(offer => Number(offer.price)).filter(Number.isFinite);
+    const payload = {
+      set: set.name,
+      fetchedAt: Date.now(),
+      refreshSeconds: Math.round(REFRESH_MS / 1_000),
+      refreshMinutes: Math.max(1, Math.round(REFRESH_MS / 60_000)),
+      storesChecked,
+      storesWithProducts: offers.length,
+      offers,
+      statuses: []
+    };
+    setsPayload[set.name] = payload;
+    summaries.push({
+      set: set.name,
+      availableStores: available.length,
+      soldoutStores: offers.length - available.length,
+      storesWithProducts: offers.length,
+      storesChecked,
+      minPrice: prices.length ? Math.min(...prices) : null,
+      fetchedAt: payload.fetchedAt
+    });
+  }
+  return { generatedAt: Date.now(), refreshSeconds: Math.round(REFRESH_MS / 1_000), summaries, sets: setsPayload };
+}
+
+function broadcastEvent(type, data) {
+  const message = `event: ${type}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const client of eventClients) client.write(message);
+}
+
+function updateSnapshot() {
+  const previous = new Map((liveSnapshot.summaries || []).map(item => [item.set, item]));
+  liveSnapshot = snapshotForCatalogs();
+  for (const current of liveSnapshot.summaries) {
+    const before = previous.get(current.set);
+    if (before && before.availableStores === 0 && current.availableStores > 0) {
+      broadcastEvent('restock', current);
+    }
+  }
+  broadcastEvent('snapshot', { generatedAt: liveSnapshot.generatedAt });
+}
 
 function normalize(value) {
   return String(value || '')
@@ -118,22 +195,43 @@ function productMatchesSet(product, setName) {
     const tokens = alias.split(' ').filter(token => token.length > 1);
     return tokens.length > 0 && tokens.every(token => haystack.includes(token));
   });
-  const productSignal = /\b(booster|pack|pakke|display|elite trainer|collection|blister|tin|album|portfolio|kort|cards?)\b/i.test(`${product.title || ''} ${product.description || ''}`);
+  const productSignal = /\b(booster|pack|pakke|display|elite trainer|etb)\b/i.test(`${product.title || ''} ${product.description || ''}`);
   return matched && (pokemonSignal || productSignal || aliases.some(alias => alias.split(' ').length >= 2));
 }
 
+const ALLOWED_PRODUCT_TYPES = new Set([
+  'Booster Pack',
+  'Booster Bundle',
+  'Elite Trainer Box',
+  'Booster Display Box'
+]);
+
 function classifyProduct(title) {
   const value = normalize(title);
-  if (value.includes('booster box') || value.includes('booster display') || value.includes('display boks')) return 'Booster Display';
+  const excluded = /\b(single|singelkort|enkeltkort|graded|psa|cgc|blister|collection|tin|build and battle|build battle|portfolio|album|binder|perm|sleeves?|deck|theme deck|battle deck)\b/;
+  if (excluded.test(value)) return null;
   if (value.includes('booster bundle')) return 'Booster Bundle';
-  if (value.includes('elite trainer') || /\betb\b/.test(value)) return 'Elite Trainer Box';
-  if (value.includes('blister')) return 'Blisterpakke';
-  if (value.includes('collection')) return 'Collection Box';
-  if (value.includes('mini tin') || value.includes('tin boks')) return 'Tin';
-  if (value.includes('build battle')) return 'Build & Battle';
-  if (value.includes('booster') || value.includes('pack') || value.includes('pakke')) return 'Boosterpakke';
-  if (value.includes('portfolio') || value.includes('album') || value.includes('perm')) return 'Album/perm';
-  return 'Pokémon-produkt';
+  if (value.includes('elite trainer box') || value.includes('elite trainer') || /\betb\b/.test(value)) return 'Elite Trainer Box';
+  if (
+    value.includes('booster display box') ||
+    value.includes('booster display') ||
+    value.includes('booster box') ||
+    value.includes('display box') ||
+    value.includes('display boks')
+  ) return 'Booster Display Box';
+  if (
+    value.includes('sleeved booster') ||
+    value.includes('loose booster') ||
+    /\bbooster pack\b/.test(value) ||
+    /\bboosterpakke\b/.test(value) ||
+    /\bbooster pakke\b/.test(value) ||
+    /\bbooster\b/.test(value)
+  ) return 'Booster Pack';
+  return null;
+}
+
+function isAllowedProduct(product) {
+  return Boolean(product && ALLOWED_PRODUCT_TYPES.has(product.productType));
 }
 
 function sameStoreUrl(candidate, store) {
@@ -572,15 +670,29 @@ async function offersForSet(setName, force = false) {
   const offers = [];
   await mapLimit(stores.filter(store => store.enabled), STORE_CONCURRENCY, async store => {
     const catalog = await refreshStore(store, force);
-    let matched = catalog.products.filter(product => productMatchesSet(product, setName));
+    let matched = catalog.products
+      .filter(product => productMatchesSet(product, setName))
+      .filter(isAllowedProduct);
     if (!matched.length) {
-      try { matched = await fetchShopifyProducts(store, setName); } catch {}
+      try {
+        matched = (await fetchShopifyProducts(store, setName))
+          .filter(product => productMatchesSet(product, setName))
+          .filter(isAllowedProduct);
+      } catch {}
     }
     if (!matched.length) {
-      try { matched = await fetchMagentoProducts(store, setName); } catch {}
+      try {
+        matched = (await fetchMagentoProducts(store, setName))
+          .filter(product => productMatchesSet(product, setName))
+          .filter(isAllowedProduct);
+      } catch {}
     }
     if (!matched.length && ALLOW_HTML_FALLBACK) {
-      try { matched = await searchHtmlStore(store, setName); } catch {}
+      try {
+        matched = (await searchHtmlStore(store, setName))
+          .filter(product => productMatchesSet(product, setName))
+          .filter(isAllowedProduct);
+      } catch {}
     }
     const offer = chooseStoreOffer(store, matched, catalog.fetchedAt || Date.now(), catalog.adapter);
     if (offer) offers.push(offer);
@@ -598,7 +710,8 @@ async function offersForSet(setName, force = false) {
   const result = {
     set: setName,
     fetchedAt: Date.now(),
-    refreshMinutes: Math.round(REFRESH_MS / 60_000),
+    refreshMinutes: Math.max(1, Math.round(REFRESH_MS / 60_000)),
+        refreshSeconds: Math.round(REFRESH_MS / 1_000),
     storesChecked: statuses.length,
     storesWithProducts: offers.length,
     offers,
@@ -641,13 +754,14 @@ async function loadCache() {
     const payload = JSON.parse(await fsp.readFile(CACHE_FILE, 'utf8'));
     for (const [key, value] of payload.catalogs || []) catalogCache.set(key, value);
     for (const [key, value] of payload.sets || []) setOfferCache.set(key, value);
+    updateSnapshot();
   } catch {}
 }
 
 async function warmCatalogs() {
   if (warmupPromise) return warmupPromise;
   warmupPromise = mapLimit(stores.filter(store => store.enabled), Math.max(2, Math.floor(STORE_CONCURRENCY / 2)), store => refreshStore(store, false))
-    .then(() => persistCache())
+    .then(() => { updateSnapshot(); return persistCache(); })
     .finally(() => { warmupPromise = null; });
   return warmupPromise;
 }
@@ -695,7 +809,8 @@ const server = http.createServer(async (req, res) => {
         storesConfigured: stores.length,
         catalogsAvailable: availableCatalogs,
         setCaches: setOfferCache.size,
-        refreshMinutes: Math.round(REFRESH_MS / 60_000),
+        refreshMinutes: Math.max(1, Math.round(REFRESH_MS / 60_000)),
+        refreshSeconds: Math.round(REFRESH_MS / 1_000),
         htmlFallback: ALLOW_HTML_FALLBACK
       });
     }
@@ -712,9 +827,27 @@ const server = http.createServer(async (req, res) => {
         };
       }));
     }
+    if (requestUrl.pathname === '/api/catalog') {
+      return json(res, 200, liveSnapshot);
+    }
+    if (requestUrl.pathname === '/api/events') {
+      res.writeHead(200, {
+        'content-type': 'text/event-stream; charset=utf-8',
+        'cache-control': 'no-cache, no-transform',
+        connection: 'keep-alive',
+        'x-accel-buffering': 'no'
+      });
+      res.write(`event: connected\ndata: ${JSON.stringify({ generatedAt: liveSnapshot.generatedAt })}\n\n`);
+      eventClients.add(res);
+      const heartbeat = setInterval(() => res.write(': keepalive\n\n'), 25_000);
+      req.on('close', () => { clearInterval(heartbeat); eventClients.delete(res); });
+      return;
+    }
     if (requestUrl.pathname === '/api/offers') {
       const setName = String(requestUrl.searchParams.get('set') || '').trim();
       if (!setName || setName.length > 100) return json(res, 400, { error: 'Ugyldig settnavn' });
+      const snapshotOffer = liveSnapshot.sets?.[setName];
+      if (snapshotOffer && requestUrl.searchParams.get('deep') !== '1') return json(res, 200, snapshotOffer);
       const adminToken = process.env.ADMIN_REFRESH_TOKEN;
       const force = Boolean(adminToken && requestUrl.searchParams.get('token') === adminToken && requestUrl.searchParams.get('refresh') === '1');
       const result = await offersForSet(setName, force);
@@ -735,6 +868,7 @@ const server = http.createServer(async (req, res) => {
 
 async function start() {
   await loadCache();
+  if (!liveSnapshot.summaries.length) updateSnapshot();
   server.listen(PORT, HOST, () => {
     console.log(`PokéInventar kjører på http://${HOST}:${PORT}`);
     console.log(`${stores.length} butikker konfigurert. Live-kataloger varmes opp i bakgrunnen.`);
@@ -757,5 +891,7 @@ module.exports = {
   parseJsonLdProducts,
   sameStoreUrl,
   offersForSet,
+  classifyProduct,
+  isAllowedProduct,
   server
 };

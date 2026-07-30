@@ -16,6 +16,8 @@
   const liveOffers = new Map();
   const storeStatuses = new Map();
   let activeDetailName = null;
+  let catalogLoading = false;
+  let lastCatalogGeneratedAt = 0;
 
   const $ = id => document.getElementById(id);
   const grid = $('grid');
@@ -130,10 +132,10 @@
     const summary = liveSummaries.get(item.name);
     const statusText = summary
       ? summary.availableStores > 0 ? 'På lager nå' : summary.storesWithProducts > 0 ? 'Utsolgt nå' : 'Ingen treff i feed'
-      : 'Åpne for livepris';
+      : 'Oppdaterer livepris';
     const statusClass = summary && summary.availableStores === 0 ? 'out' : summary ? '' : 'pending';
-    const price = summary ? formatPrice(summary.minPrice) : 'Live-sjekk';
-    const storeFact = summary ? `${summary.availableStores} av ${summary.storesWithProducts}` : 'Klikk for å hente';
+    const price = summary ? formatPrice(summary.minPrice) : 'Henter …';
+    const storeFact = summary ? `${summary.availableStores} av ${summary.storesWithProducts}` : 'Kontrollerer alle butikker';
 
     return `<article class="inventory-card" tabindex="0" data-kind="set" data-name="${esc(item.name)}">
       <div class="pack-stage">${setImage(item)}<button class="save ${saved ? 'is-saved' : ''}" data-save="${esc(item.name)}" aria-label="${saved ? 'Fjern fra favoritter' : 'Legg til i favoritter'}">${saved ? '♥' : '♡'}</button></div>
@@ -208,7 +210,7 @@
     document.querySelectorAll('.nav-tab').forEach(button => button.classList.toggle('is-active', button.dataset.view === view));
     document.querySelectorAll('[data-status]').forEach(button => button.classList.toggle('is-active', button.dataset.status === 'all'));
     const copy = {
-      sets: ['ALLE SETT', 'Velg etter motiv, pris eller tilgjengelighet', 'Trykk på et sett for å hente ferske priser, lagerstatus og direkte produktlenker fra butikkene.', 'Søk etter sett …'],
+      sets: ['ALLE SETT', 'Alle livepriser på ett sted', 'Pris og lagerstatus oppdateres automatisk for alle sett. Trykk på et sett for å se hver enkelt butikk og direkte produktlenke.', 'Søk etter sett …'],
       stores: ['BUTIKKER I NORGE', 'Gå direkte til forhandleren', 'Butikkort åpner butikkens egen nettside. Feedstatus viser hvilke butikker som er live tilkoblet.', 'Søk etter butikk …'],
       favorites: ['DINE FAVORITTER', 'Alt du følger på ett sted', 'Åpne favorittene for å hente fersk pris og lagerstatus fra norske butikker.', 'Søk i favoritter …']
     }[view];
@@ -281,7 +283,7 @@
     liveOffers.set(item.name, payload);
 
     const overview = `<section class="store-overview" aria-label="Live butikkoversikt for ${esc(item.name)}">
-      <header class="store-overview-head"><div><p class="kicker">LIVE BUTIKKSJEKK</p><h3>Direkte produktsider hos norske butikker</h3><p>Tilbudene kommer fra butikkens egen feed eller produktmetadata. Hver butikk og hver knapp under peker direkte til den aktuelle produktsiden.</p></div><div class="overview-count"><b>${offers.length}</b><span>butikker med treff</span></div></header>
+      <header class="store-overview-head"><div><p class="kicker">LIVE BUTIKKSJEKK</p><h3>Direkte produktsider hos norske butikker</h3><p>Kun Booster Pack, Booster Bundle, Elite Trainer Box og Booster Display Box vises. Singlekort og øvrige produkttyper er filtrert bort. Hver knapp peker direkte til den aktuelle produktsiden.</p></div><div class="overview-count"><b>${offers.length}</b><span>butikker med treff</span></div></header>
       <div class="offer-section"><div class="offer-section-title"><h4><span class="status-dot available"></span>På lager</h4><b>${available.length}</b></div>${available.length ? `<div class="offer-list">${available.map(offerRow).join('')}</div>` : `<div class="offer-empty"><span>◌</span><div><b>Ingen live-tilkoblede butikker viser lager akkurat nå</b><p>Dette betyr ikke nødvendigvis at produktet ikke finnes i fysiske butikker.</p></div></div>`}</div>
       <div class="offer-section soldout-section"><div class="offer-section-title"><h4><span class="status-dot soldout"></span>Utsolgt</h4><b>${soldout.length}</b></div>${soldout.length ? `<div class="offer-list">${soldout.map(offerRow).join('')}</div>` : `<div class="offer-empty compact"><b>Ingen utsolgte produktsider ble funnet i de tilgjengelige feedene.</b></div>`}</div>
       ${offers.length ? '' : `<div class="live-warning"><b>Ingen eksakte produkt-URL-er ble funnet.</b><p>${summary.storesChecked} butikker ble forsøkt kontrollert. Butikker uten offentlig feed, blokkerte forespørsler eller uverifiserte domener blir ikke vist som falskt «utsolgt».</p></div>`}
@@ -307,6 +309,70 @@
     if (button) button.addEventListener('click', () => {
       toggleFavorite(item.name);
       button.textContent = state.favorites.has(item.name) ? 'Fjern fra favoritter' : 'Følg dette settet';
+    });
+  }
+
+  function summaryFromPayload(payload) {
+    const offers = Array.isArray(payload?.offers) ? payload.offers : [];
+    const available = offers.filter(offer => offer.inStock);
+    const prices = available.map(offer => Number(offer.price)).filter(Number.isFinite);
+    return {
+      checked: true,
+      availableStores: available.length,
+      soldoutStores: offers.length - available.length,
+      storesWithProducts: offers.length,
+      storesChecked: Number(payload?.storesChecked || 0),
+      minPrice: prices.length ? Math.min(...prices) : null,
+      fetchedAt: payload?.fetchedAt ? new Date(payload.fetchedAt).toISOString() : new Date().toISOString()
+    };
+  }
+
+  async function notifyRestock(summary) {
+    if (!state.favorites.has(summary.set)) return;
+    if (localStorage.getItem('pokeinventar:notifications') !== 'enabled' || Notification.permission !== 'granted') return;
+    try {
+      const registration = await registerSW();
+      await registration.showNotification('Tilbake på lager', {
+        body: `${summary.set} er på lager i ${summary.availableStores} ${summary.availableStores === 1 ? 'butikk' : 'butikker'}${summary.minPrice ? ` fra ${formatPrice(summary.minPrice)}` : ''}.`,
+        icon: 'assets/icon-192.png', badge: 'assets/badge-96.png', tag: `restock-${summary.set}`, data: { url: './#catalog' }
+      });
+    } catch {}
+  }
+
+  async function loadLiveCatalog({ silent = false } = {}) {
+    if (catalogLoading || location.protocol === 'file:') return;
+    catalogLoading = true;
+    try {
+      const response = await fetch('/api/catalog', { headers: { accept: 'application/json' }, cache: 'no-store' });
+      if (!response.ok) throw new Error(`Live API svarte med status ${response.status}`);
+      const payload = await response.json();
+      const previous = new Map(liveSummaries);
+      for (const item of payload.summaries || []) {
+        const summary = { ...item, checked: true, fetchedAt: new Date(item.fetchedAt || payload.generatedAt || Date.now()).toISOString() };
+        const before = previous.get(item.set);
+        liveSummaries.set(item.set, summary);
+        if (before && before.availableStores === 0 && summary.availableStores > 0) notifyRestock(summary);
+      }
+      for (const [name, offerPayload] of Object.entries(payload.sets || {})) liveOffers.set(name, offerPayload);
+      lastCatalogGeneratedAt = Number(payload.generatedAt || Date.now());
+      updateLiveStats();
+      render();
+      const refreshLabel = document.getElementById('refreshInterval');
+      if (refreshLabel) refreshLabel.textContent = `${Math.max(1, Math.round(Number(payload.refreshSeconds || 120) / 60))} min`;
+    } catch (error) {
+      if (!silent) console.warn('Kunne ikke hente samlet livekatalog:', error);
+    } finally {
+      catalogLoading = false;
+    }
+  }
+
+  function connectLiveEvents() {
+    if (!('EventSource' in window) || location.protocol === 'file:') return;
+    const events = new EventSource('/api/events');
+    events.addEventListener('snapshot', () => loadLiveCatalog({ silent: true }));
+    events.addEventListener('restock', event => {
+      try { notifyRestock(JSON.parse(event.data)); } catch {}
+      loadLiveCatalog({ silent: true });
     });
   }
 
@@ -440,6 +506,9 @@
   if (localStorage.getItem('pokeinventar:notifications') === 'enabled') $('notificationStatus').textContent = 'Varsler er aktivert på denne enheten.';
   registerSW().catch(() => {});
   loadStoreStatuses();
+  loadLiveCatalog();
+  connectLiveEvents();
   setInterval(loadStoreStatuses, 60_000);
+  setInterval(() => loadLiveCatalog({ silent: true }), 30_000);
   render();
 })();
