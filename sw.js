@@ -1,4 +1,4 @@
-const CACHE='pokeinventar-v6-live-all';
+const CACHE='pokeinventar-v6.2-graphics-priority';
 const LOCAL=['./','./index.html','./styles.css','./data.js','./app.js','./manifest.webmanifest','./assets/favicon.svg','./assets/icon-192.png','./assets/icon-512.png','./assets/pack-fallback.svg'];
 self.addEventListener('install',event=>event.waitUntil(caches.open(CACHE).then(cache=>cache.addAll(LOCAL)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',event=>event.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(key=>key!==CACHE).map(key=>caches.delete(key)))).then(()=>self.clients.claim())));

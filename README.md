@@ -88,3 +88,21 @@ Et svært lavt intervall kan belaste eller føre til blokkering hos butikkene. B
 ### Drift uten egen PC
 
 Applikasjonen må fortsatt ha en alltid-på Node-prosess for prisinnhenting og varsler, men den trenger ikke kjøre hjemme. Dockerfile og `render.yaml` gjør prosjektet klart for en vanlig Node/Docker-host. Raspberry Pi-oppsett er med vilje ikke inkludert i denne builden.
+
+## Versjon 6.1 – livepris direkte på settkortene
+
+Frontend kjører nå presise settsøk automatisk for hele katalogen. Kortene oppdateres fortløpende med laveste livepris og antall butikker på lager uten at brukeren åpner detaljvisningen.
+
+- Første komplette kontroll vises som fremdrift i feltet for oppdateringsstatus.
+- Tre sett kontrolleres parallelt for å unngå å overbelaste butikkene.
+- Resultater publiseres umiddelbart via Server-Sent Events.
+- Settdetaljene og kortoversikten bruker samme tilbudsdata.
+- Service Worker og script-URL-er er versjonert for å fjerne gammel cache.
+
+Etter oppgradering: stopp serveren, erstatt prosjektmappen, kjør `npm start`, og åpne siden på nytt. En hard refresh (`Cmd + Shift + R`) anbefales én gang.
+
+## Versjon 6.2 – grafikkprioritet
+
+- Sett med faktisk lastet pakkegrafikk eller logografikk prioriteres først i oversikten.
+- Sett som ender på reservebildet flyttes automatisk lenger ned, slik at visningen blir ryddigere.
+- Knappeetiketten `Se norske butikker` er endret til `Skru på varsler`, og knappen åpner nå varslingsdialogen direkte.

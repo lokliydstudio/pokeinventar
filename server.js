@@ -57,10 +57,44 @@ function loadSetCatalog() {
 
 const SET_CATALOG = loadSetCatalog();
 
+function summaryFromOfferPayload(payload) {
+  const offers = Array.isArray(payload?.offers) ? payload.offers : [];
+  const available = offers.filter(offer => offer.inStock);
+  const prices = available.map(offer => Number(offer.price)).filter(Number.isFinite);
+  return {
+    set: payload?.set || '',
+    availableStores: available.length,
+    soldoutStores: offers.length - available.length,
+    storesWithProducts: offers.length,
+    storesChecked: Number(payload?.storesChecked || 0),
+    minPrice: prices.length ? Math.min(...prices) : null,
+    fetchedAt: Number(payload?.fetchedAt || Date.now())
+  };
+}
+
+function publishSetPayload(setName, payload) {
+  if (!payload) return;
+  const normalizedPayload = { ...payload, set: setName };
+  liveSnapshot.sets[setName] = normalizedPayload;
+  const summary = summaryFromOfferPayload(normalizedPayload);
+  const index = liveSnapshot.summaries.findIndex(item => item.set === setName);
+  if (index >= 0) liveSnapshot.summaries[index] = summary;
+  else liveSnapshot.summaries.push(summary);
+  liveSnapshot.generatedAt = Date.now();
+  broadcastEvent('set-update', summary);
+}
+
 function snapshotForCatalogs() {
   const setsPayload = {};
   const summaries = [];
   for (const set of SET_CATALOG) {
+    const cachedSet = setOfferCache.get(normalize(set.name));
+    if (cachedSet && Array.isArray(cachedSet.offers)) {
+      const payload = { ...cachedSet, set: set.name };
+      setsPayload[set.name] = payload;
+      summaries.push(summaryFromOfferPayload(payload));
+      continue;
+    }
     const offers = [];
     let storesChecked = 0;
     for (const store of stores.filter(item => item.enabled)) {
@@ -718,6 +752,7 @@ async function offersForSet(setName, force = false) {
     statuses
   };
   setOfferCache.set(key, result);
+  publishSetPayload(setName, result);
   await persistCache();
   return result;
 }

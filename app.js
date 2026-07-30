@@ -15,9 +15,14 @@
   const liveSummaries = new Map();
   const liveOffers = new Map();
   const storeStatuses = new Map();
+  const imageStatuses = new Map();
   let activeDetailName = null;
   let catalogLoading = false;
   let lastCatalogGeneratedAt = 0;
+  let fullScanRunning = false;
+  let fullScanCompleted = 0;
+  let fullScanTimer = null;
+  let renderTimer = null;
 
   const $ = id => document.getElementById(id);
   const grid = $('grid');
@@ -45,6 +50,20 @@
     return Number.isFinite(Number(value)) ? currency.format(Number(value)) : '—';
   }
 
+
+  function setImageStatus(name, status) {
+    if (!name || imageStatuses.get(name) === status) return;
+    imageStatuses.set(name, status);
+    scheduleRender();
+  }
+
+  function imagePriority(item) {
+    const status = imageStatuses.get(item.name);
+    if (status === 'found') return 2;
+    if (status === 'missing') return 0;
+    return (item.packImage || item.packImageAlt || item.logoImage) ? 1 : 0;
+  }
+
   function relativeTime(iso) {
     const timestamp = Date.parse(iso);
     if (!Number.isFinite(timestamp)) return 'ukjent tid';
@@ -59,7 +78,7 @@
   const setImage = item => {
     const alt = item.packImageAlt || '';
     const logo = item.logoImage || '';
-    return `<img src="${esc(item.packImage)}" data-alt-src="${esc(alt)}" data-logo-src="${esc(logo)}" data-fallback="assets/pack-fallback.svg" alt="Boosterpakke fra ${esc(item.name)}" loading="lazy" referrerpolicy="no-referrer">`;
+    return `<img src="${esc(item.packImage)}" data-set-name="${esc(item.name)}" data-alt-src="${esc(alt)}" data-logo-src="${esc(logo)}" data-fallback="assets/pack-fallback.svg" alt="Boosterpakke fra ${esc(item.name)}" loading="lazy" referrerpolicy="no-referrer">`;
   };
 
   function imageFallback(img) {
@@ -76,6 +95,7 @@
     }
     img.onerror = null;
     img.src = img.dataset.fallback;
+    setImageStatus(img.dataset.setName, 'missing');
   }
   window.pokeImageFallback = imageFallback;
 
@@ -124,7 +144,9 @@
       price: (a, b) => (liveSummaries.get(a.name)?.minPrice ?? Infinity) - (liveSummaries.get(b.name)?.minPrice ?? Infinity) || a.name.localeCompare(b.name, 'nb'),
       name: (a, b) => a.name.localeCompare(b.name, 'nb')
     };
-    return list.sort(sorters[state.sort] || sorters.smart);
+    const baseSorter = sorters[state.sort] || sorters.smart;
+    if (state.view === 'stores') return list.sort(baseSorter);
+    return list.sort((a, b) => imagePriority(b) - imagePriority(a) || baseSorter(a, b));
   }
 
   function setCard(item) {
@@ -163,7 +185,15 @@
   }
 
   function bindImages() {
-    document.querySelectorAll('.pack-stage img, .detail-art img').forEach(img => img.addEventListener('error', () => imageFallback(img), { once: false }));
+    document.querySelectorAll('.pack-stage img, .detail-art img').forEach(img => {
+      if (img.dataset.bound === '1') return;
+      img.dataset.bound = '1';
+      img.addEventListener('load', () => {
+        if (img.src.endsWith('assets/pack-fallback.svg')) return;
+        setImageStatus(img.dataset.setName, 'found');
+      });
+      img.addEventListener('error', () => imageFallback(img));
+    });
   }
 
   function render() {
@@ -212,7 +242,7 @@
     const copy = {
       sets: ['ALLE SETT', 'Alle livepriser på ett sted', 'Pris og lagerstatus oppdateres automatisk for alle sett. Trykk på et sett for å se hver enkelt butikk og direkte produktlenke.', 'Søk etter sett …'],
       stores: ['BUTIKKER I NORGE', 'Gå direkte til forhandleren', 'Butikkort åpner butikkens egen nettside. Feedstatus viser hvilke butikker som er live tilkoblet.', 'Søk etter butikk …'],
-      favorites: ['DINE FAVORITTER', 'Alt du følger på ett sted', 'Åpne favorittene for å hente fersk pris og lagerstatus fra norske butikker.', 'Søk i favoritter …']
+      favorites: ['DINE FAVORITTER', 'Alt du følger på ett sted', 'Favorittene dine oppdateres automatisk med fersk pris og lagerstatus fra norske butikker.', 'Søk i favoritter …']
     }[view];
     $('catalogKicker').textContent = copy[0];
     $('catalogTitle').textContent = copy[1];
@@ -327,6 +357,72 @@
     };
   }
 
+  function scheduleRender() {
+    if (renderTimer) return;
+    renderTimer = setTimeout(() => {
+      renderTimer = null;
+      updateLiveStats();
+      render();
+    }, 120);
+  }
+
+  function updateScanLabel() {
+    const label = document.getElementById('refreshInterval');
+    if (!label) return;
+    if (fullScanRunning) label.textContent = `${fullScanCompleted}/${sets.length} sett`;
+    else label.textContent = '2 min';
+  }
+
+  async function fetchFullSetPrice(setName) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 180_000);
+    try {
+      const response = await fetch(`/api/offers?set=${encodeURIComponent(setName)}&deep=1`, {
+        signal: controller.signal,
+        headers: { accept: 'application/json' },
+        cache: 'no-store'
+      });
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const payload = await response.json();
+      if (!payload || !Array.isArray(payload.offers)) return;
+      liveOffers.set(setName, payload);
+      liveSummaries.set(setName, summaryFromPayload(payload));
+      scheduleRender();
+    } catch (error) {
+      console.warn(`Kunne ikke kontrollere ${setName}:`, error.message);
+    } finally {
+      clearTimeout(timer);
+      fullScanCompleted += 1;
+      updateScanLabel();
+    }
+  }
+
+  async function startFullCatalogScan() {
+    if (fullScanRunning || location.protocol === 'file:') return;
+    fullScanRunning = true;
+    fullScanCompleted = 0;
+    updateScanLabel();
+
+    const prioritized = [...sets].sort((a, b) => {
+      const aHas = liveSummaries.get(a.name)?.minPrice != null ? 1 : 0;
+      const bHas = liveSummaries.get(b.name)?.minPrice != null ? 1 : 0;
+      return aHas - bHas;
+    });
+    let cursor = 0;
+    const worker = async () => {
+      while (cursor < prioritized.length) {
+        const item = prioritized[cursor++];
+        await fetchFullSetPrice(item.name);
+      }
+    };
+    await Promise.all(Array.from({ length: 3 }, worker));
+    fullScanRunning = false;
+    updateScanLabel();
+    await loadLiveCatalog({ silent: true });
+    clearTimeout(fullScanTimer);
+    fullScanTimer = setTimeout(startFullCatalogScan, 120_000);
+  }
+
   async function notifyRestock(summary) {
     if (!state.favorites.has(summary.set)) return;
     if (localStorage.getItem('pokeinventar:notifications') !== 'enabled' || Notification.permission !== 'granted') return;
@@ -370,6 +466,13 @@
     if (!('EventSource' in window) || location.protocol === 'file:') return;
     const events = new EventSource('/api/events');
     events.addEventListener('snapshot', () => loadLiveCatalog({ silent: true }));
+    events.addEventListener('set-update', event => {
+      try {
+        const summary = { ...JSON.parse(event.data), checked: true, fetchedAt: new Date().toISOString() };
+        liveSummaries.set(summary.set, summary);
+        scheduleRender();
+      } catch {}
+    });
     events.addEventListener('restock', event => {
       try { notifyRestock(JSON.parse(event.data)); } catch {}
       loadLiveCatalog({ silent: true });
@@ -471,7 +574,7 @@
   [...new Set(sets.map(set => set.era))].forEach(era => $('eraFilter').insertAdjacentHTML('beforeend', `<option value="${esc(era)}">${esc(era)}</option>`));
   document.querySelectorAll('.nav-tab').forEach(button => button.addEventListener('click', () => updateView(button.dataset.view)));
   $('browseSets').addEventListener('click', () => updateView('sets'));
-  $('browseStores').addEventListener('click', () => updateView('stores'));
+  $('browseStores').addEventListener('click', openNotify);
   $('search').addEventListener('input', event => { state.query = event.target.value; render(); });
   $('sort').addEventListener('change', event => { state.sort = event.target.value; render(); });
   $('filterToggle').addEventListener('click', () => { $('filterPanel').hidden = !$('filterPanel').hidden; });
@@ -506,7 +609,7 @@
   if (localStorage.getItem('pokeinventar:notifications') === 'enabled') $('notificationStatus').textContent = 'Varsler er aktivert på denne enheten.';
   registerSW().catch(() => {});
   loadStoreStatuses();
-  loadLiveCatalog();
+  loadLiveCatalog().finally(() => startFullCatalogScan());
   connectLiveEvents();
   setInterval(loadStoreStatuses, 60_000);
   setInterval(() => loadLiveCatalog({ silent: true }), 30_000);
